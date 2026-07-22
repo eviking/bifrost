@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -105,7 +106,9 @@ func (d *Datasource) query(ctx context.Context, query backend.DataQuery) backend
 		return backend.ErrDataResponse(backend.StatusBadRequest, "query is missing required 'sql' field")
 	}
 
-	bridgeResp, err := d.callBridge(ctx, qm.SQL)
+	sql := applyTimeRangeMacros(qm.SQL, query.TimeRange)
+
+	bridgeResp, err := d.callBridge(ctx, sql)
 	if err != nil {
 		return backend.ErrDataResponse(backend.StatusInternal, err.Error())
 	}
@@ -118,6 +121,61 @@ func (d *Datasource) query(ctx context.Context, query backend.DataQuery) backend
 	var resp backend.DataResponse
 	resp.Frames = append(resp.Frames, frame)
 	return resp
+}
+
+// applyTimeRangeMacros substitutes Grafana's standard SQL-datasource time
+// macros with literal bounds from the panel's selected time range, following
+// the same convention as Grafana's official Postgres/MySQL/ClickHouse SQL
+// datasources. Without this, the "Last 6 hours" picker has no effect at
+// all — the raw SQL a user writes is sent to the bridge completely
+// unmodified, so a query with no explicit WHERE clause on timestamp ignores
+// the picker entirely.
+//
+// Supported macros:
+//   - $__timeFrom() / $__timeTo()      -> a quoted RFC3339 timestamp literal
+//   - $__timeFilter(column)            -> "column >= '<from>' AND column <= '<to>'"
+//
+// Bifrost's timestamp-bound pushdown (see src/time_range.rs) recognizes
+// string literals parsed via RFC3339, so these substitutions are pushed into
+// Loki's start/end query params rather than merely filtering client-side.
+func applyTimeRangeMacros(sql string, tr backend.TimeRange) string {
+	from := tr.From.UTC().Format(time.RFC3339Nano)
+	to := tr.To.UTC().Format(time.RFC3339Nano)
+
+	sql = strings.ReplaceAll(sql, "$__timeFrom()", fmt.Sprintf("'%s'", from))
+	sql = strings.ReplaceAll(sql, "$__timeTo()", fmt.Sprintf("'%s'", to))
+	sql = replaceTimeFilterMacro(sql, from, to)
+
+	return sql
+}
+
+// replaceTimeFilterMacro expands every $__timeFilter(<column>) occurrence.
+// A simple scan-for-balanced-parens approach is used instead of a regex so
+// arbitrary column expressions (e.g. containing commas or nested calls)
+// aren't mis-parsed.
+func replaceTimeFilterMacro(sql, from, to string) string {
+	const marker = "$__timeFilter("
+	var out strings.Builder
+	rest := sql
+	for {
+		idx := strings.Index(rest, marker)
+		if idx == -1 {
+			out.WriteString(rest)
+			break
+		}
+		out.WriteString(rest[:idx])
+		afterMarker := rest[idx+len(marker):]
+		closeIdx := strings.IndexByte(afterMarker, ')')
+		if closeIdx == -1 {
+			// Unbalanced macro; leave the rest untouched rather than guessing.
+			out.WriteString(rest[idx:])
+			break
+		}
+		column := strings.TrimSpace(afterMarker[:closeIdx])
+		out.WriteString(fmt.Sprintf("%s >= '%s' AND %s <= '%s'", column, from, column, to))
+		rest = afterMarker[closeIdx+1:]
+	}
+	return out.String()
 }
 
 func (d *Datasource) callBridge(ctx context.Context, sql string) (*bridgeResponse, error) {

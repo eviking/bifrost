@@ -137,6 +137,20 @@ column would be) and a `GROUP BY level, env` aggregation computed entirely by Da
 on top of the scanned rows — a 300-row synthetic dataset summed correctly across all
 group combinations, confirming the full Arrow round-trip is lossless.
 
+Demo data ages out fast: `scripts/push_logs.py` also supports `--continuous`, which keeps
+pushing a fresh small batch every few seconds instead of one static batch — useful for any
+session longer than Loki's default query-window lookback (roughly an hour), since panels
+otherwise go silently empty with no error once the synthetic data falls out of range.
+
+### Grafana plugin
+
+`grafana-plugin/` is a real Grafana backend datasource plugin (Go + TypeScript) that lets
+Grafana panels query Loki with SQL through `bridge/`, the Rust HTTP service that embeds
+`datafusion-loki`. **The dashboard time picker only constrains a query if the SQL includes
+`$__timeFilter(timestamp)`** — see `grafana-plugin/README.md` for the full macro reference
+and why (this mirrors how Grafana's official Postgres/MySQL/ClickHouse datasources work:
+the picker never silently rewrites your SQL for you).
+
 ## Two schema modes
 
 **Flattened (recommended when labels are known ahead of time)**
