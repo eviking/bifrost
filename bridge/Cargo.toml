@@ -1,0 +1,21 @@
+[package]
+name = "bifrost-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "HTTP bridge exposing datafusion-loki over a JSON API, for consumption by the Bifrost Grafana datasource plugin"
+
+[[bin]]
+name = "bifrost-bridge"
+path = "src/main.rs"
+
+[dependencies]
+datafusion-loki = { path = ".." }
+datafusion = { version = "42", default-features = false, features = ["nested_expressions"] }
+arrow = { version = "53", features = ["prettyprint"] }
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

@@ -1,0 +1,25 @@
+# Rust
+/target/
+**/target/
+
+# Go
+grafana-plugin/dist/
+*.exe
+*.test
+
+# Node / frontend
+node_modules/
+grafana-plugin/node_modules/
+*.tsbuildinfo
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Claude Code local state
+.claude/
+
+# Editor
+.vscode/
+.idea/
+*.swp

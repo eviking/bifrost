@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "datasource",
+  "name": "Bifrost (DataFusion + Loki)",
+  "id": "bifrost-datafusion-datasource",
+  "backend": true,
+  "executable": "gpx_bifrost",
+  "metrics": true,
+  "info": {
+    "description": "Queries Grafana Loki through Apache DataFusion via the Bifrost TableProvider, using SQL instead of LogQL.",
+    "author": {
+      "name": "Bifrost"
+    },
+    "keywords": ["datafusion", "loki", "sql", "arrow"],
+    "version": "0.1.0",
+    "updated": "2026-07-22"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=10.0.0",
+    "plugins": []
+  }
+}
