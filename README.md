@@ -5,6 +5,44 @@ An [Apache DataFusion](https://datafusion.apache.org/) `TableProvider` for query
 SQL is translated (as much as possible) into [LogQL](https://grafana.com/docs/loki/latest/query/)
 and sent to Loki's `query_range` HTTP API; results stream back as Arrow `RecordBatch`es.
 
+## Analytics LogQL can't do on its own
+
+LogQL is a log *query* language, not an analytical one — it has no `GROUP BY`, no
+multi-column joins, and no way to compute an aggregate broken out by an arbitrary label
+combination in a single request. Anything past "filter and count/sum within one query"
+normally means fetching raw results and aggregating them yourself outside Loki. Because
+this provider hands unpushable work to DataFusion's actual SQL engine instead of just
+LogQL's limited aggregation operators, it opens up:
+
+- **`GROUP BY` on labels and derived expressions** — e.g.
+  `SELECT level, pod, COUNT(*) FROM logs WHERE ... GROUP BY level, pod` breaks volume down
+  by every combination of two labels in one query. LogQL's `sum by (...) (count_over_time(...))`
+  can group by labels too, but only in the metric-query subset, over a fixed step interval,
+  and only for expressions LogQL itself defines — not the same thing as relational grouping.
+- **Time-bucketed aggregation with `date_trunc`** — `GROUP BY date_trunc('minute', timestamp), level`
+  produces a per-minute, per-level breakdown as one relational result set (this is exactly what
+  the Grafana dashboard in
+  [`docs/Bifrost-Grafana-DataFusion-Walkthrough.pdf`](docs/Bifrost-Grafana-DataFusion-Walkthrough.pdf)
+  charts), rather than a metric-query time series tied to LogQL's step/range semantics.
+- **Joining log data against itself or other DataFusion tables** — SQL joins have no LogQL
+  equivalent at all; DataFusion can join a Loki-backed table against another registered table
+  (a CSV of deploy events, another Loki selector, etc.) in the same query.
+- **Window functions, `HAVING`, subqueries, `ORDER BY` on computed expressions** — standard SQL
+  DataFusion already implements, applied on top of whatever Loki returns.
+- **`IN` / `OR` value lists as a single expression** — written as ordinary SQL
+  (`level IN ('error', 'warn')`) rather than hand-rolling a LogQL regex alternation
+  (`level=~"error|warn"`) yourself; see the [pushdown reference](#pushdown-reference) below for
+  exactly what still reaches Loki as a native selector versus what runs in DataFusion.
+- **Reusing one query surface across tools** — anything that already speaks SQL (BI tools,
+  notebooks, other DataFusion-based pipelines) can query Loki without learning LogQL at all.
+
+The tradeoff is explicit, not free: only predicates in the
+[pushdown reference](#pushdown-reference) reach Loki as LogQL; everything else — including
+every `GROUP BY`/join/window function above — is computed by DataFusion *after* fetching
+matching rows over HTTP, so a query that leans entirely on DataFusion-side aggregation can
+pull more data across the wire than a hand-written, tightly scoped LogQL metric query would.
+See [Status / caveats](#status--caveats) for the concrete scaling limits this implies.
+
 ## Features
 
 - **Schema mapping**: `timestamp` (`Timestamp(Nanosecond)`) + `line` (`Utf8`) + labels,
