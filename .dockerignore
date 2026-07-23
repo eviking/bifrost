@@ -1,0 +1,9 @@
+target/
+**/target/
+node_modules/
+grafana-plugin/node_modules/
+grafana-plugin/dist/
+.git/
+.claude/
+docs/
+*.pdf

@@ -15,6 +15,19 @@ them. Switching modes on an existing datasource is just flipping the "Query mode
 button in its config page; no rebuild required, since both engines are compiled into the
 same plugin binary.
 
+## Fastest way to try it: pre-built Docker images
+
+```sh
+docker run -d --name grafana -p 3000:3000 \
+  --add-host=host.docker.internal:host-gateway \
+  eviking/bifrost-grafana          # HTTP bridge mode by default
+# or: eviking/bifrost-grafana-ffi  # In-process (FFI) mode by default, native libs pre-wired
+```
+
+Both images already have this plugin built in — no need to `npm run build` or `go build`
+anything. See the root [`docker/README.md`](../docker/README.md) for the full image list
+and how they're built. The rest of this file covers building the plugin from source.
+
 ## Query mode: In-process (FFI)
 
 Loads `LokiTableProvider` (the Rust `TableProvider` in the repo root) directly into this
@@ -133,17 +146,28 @@ includes cgo code regardless of which mode a given datasource ends up using at r
 ```sh
 npm run build   # frontend: dist/module.js
 
-# HTTP-bridge-only usage doesn't need the FFI library on the linker path, but the
-# build itself still requires cgo since pkg/lokiffi is always compiled in.
-GOSUMDB=off CGO_ENABLED=1 GOOS=linux  GOARCH=arm64 go build -o dist/gpx_bifrost_linux_arm64  ./pkg
-GOSUMDB=off CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o dist/gpx_bifrost_darwin_arm64 ./pkg
+# pkg/lokiffi has an UNCONDITIONAL cgo directive (`#cgo LDFLAGS: -lbifrost_ffi_export`),
+# so libbifrost_ffi_export.{dylib,so} must be on the linker path (and later, on
+# LD_LIBRARY_PATH/DYLD_LIBRARY_PATH at runtime) even for HTTP-bridge-only usage --
+# see ARCHITECTURE.md's "In-process (FFI) mode" section. Build it first if you haven't:
+#   cargo build --release -p bifrost-ffi-export   (from the repo root)
+GOSUMDB=off CGO_ENABLED=1 CGO_LDFLAGS="-L../target/release" \
+  GOOS=linux  GOARCH=arm64 go build -o dist/gpx_bifrost_linux_arm64  ./pkg
+GOSUMDB=off CGO_ENABLED=1 CGO_LDFLAGS="-L../target/release" \
+  GOOS=darwin GOARCH=arm64 go build -o dist/gpx_bifrost_darwin_arm64 ./pkg
 ```
+
+**If `npm ci` fails with an `ERESOLVE` error** about `react@^19` conflicting with
+`@grafana/data`'s `react@^18` peer dependency: this is a real, pre-existing conflict in
+`package.json` (the `react`/`react-dom` devDependencies were bumped to 19 without
+updating `@grafana/data`/`@grafana/ui`/`@grafana/runtime`, which still peer-depend on
+18). Use `npm ci --legacy-peer-deps` until that's reconciled upstream.
 
 Cross-compiling the Linux binary from macOS requires a Linux cross-compiler cgo can invoke,
 which this repo doesn't assume you have. If you hit `cc: error: ...undeclared function...`
-trying to `GOOS=linux` from macOS, build inside a Linux container instead — see
-`ffi-go-poc/README.md`'s note on this, or the `docker run ... rust:1.88-bookworm` pattern
-used to build this plugin's own `linux/arm64` binary during development.
+trying to `GOOS=linux` from macOS, build inside a Linux container instead — either
+`eviking/bifrost-builder` (see `docker/README.md`) or `ffi-go-poc/README.md`'s note on
+the same problem for a minimal standalone reproduction.
 
 Grafana does not hot-reload a backend plugin process on file change — restart the Grafana
 container (or process) after rebuilding for changes to take effect:
