@@ -151,17 +151,25 @@ Grafana panels query Loki with SQL through `bridge/`, the Rust HTTP service that
 and why (this mirrors how Grafana's official Postgres/MySQL/ClickHouse datasources work:
 the picker never silently rewrites your SQL for you).
 
-### In-process FFI prototype (no HTTP bridge)
+### In-process query mode (no HTTP bridge)
 
-`ffi-export/` + `ffi-go-poc/` together prove an alternate path: a Go process querying
-Loki through DataFusion **in-process**, via [`datafusion-ffi`](https://crates.io/crates/datafusion-ffi)
-and the community [`datafusion-go`](https://github.com/datafusion-contrib/datafusion-go)
-binding, with zero HTTP hops to a separate bridge process. Verified working end-to-end,
-including confirming pushdown still reaches Loki correctly — but it depends on an
-unreleased `datafusion-go` commit (the Go-side FFI registration feature isn't in a tagged
-release yet), so it isn't what `grafana-plugin/` actually uses. See `ffi-export/README.md`
-and `ffi-go-poc/README.md` for the full status and setup. `bridge/` remains the supported,
-production path.
+`grafana-plugin/` supports two interchangeable query engines, selected per-datasource via a
+"Query mode" toggle in its config page: the default **HTTP bridge** (talks to `bridge/`
+over HTTP, as described above), and an **In-process (FFI)** mode that loads
+`LokiTableProvider` directly into the plugin's own process via
+[`datafusion-ffi`](https://crates.io/crates/datafusion-ffi) and the community
+[`datafusion-go`](https://github.com/datafusion-contrib/datafusion-go) binding — zero HTTP
+hops to a separate bridge process. Verified working end-to-end on both native macOS and
+inside a real `grafana/grafana` Docker container, including confirming via Loki's own query
+logs that pushdown still reaches Loki correctly through the FFI boundary.
+
+**Marked experimental, not the default**, because it depends on an unreleased
+`datafusion-go` commit (the Go-side FFI registration feature isn't in a tagged release yet)
+and needs `cgo` plus a from-source native-library build — see `grafana-plugin/README.md`'s
+"Query mode: In-process (FFI)" section for the full setup, `ffi-export/README.md` for the
+Rust side, and `ffi-go-poc/README.md` for a minimal standalone reproduction (including a
+note on the Alpine/musl vs. glibc Docker image gotcha this surfaced). `bridge/` + HTTP mode
+remains the supported default.
 
 ## Two schema modes
 

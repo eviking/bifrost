@@ -90,3 +90,36 @@ throughout this repo:
 docker logs -f loki-demo 2>&1 | grep 'msg="executing query"'
 # should show: query="{job=\"myapp\", level=\"error\"}"
 ```
+
+## Cross-compiling for Linux (e.g. to run inside Docker)
+
+cgo cannot cross-compile without a matching cross-compiler installed for the
+target OS/arch — running `GOOS=linux go build` from macOS with only the
+macOS `cc` toolchain fails with libc-symbol errors like
+`error: call to undeclared function 'clearenv'`, since it's compiling
+Linux-targeted C code with a macOS C library. If you don't have a Linux
+cross-compiler set up, build inside a Linux container instead:
+
+```sh
+docker run --rm -v "$(pwd)/..:/work" -v go-mod-cache:/root/go/pkg/mod \
+  rust:1.88-bookworm bash -c "
+    apt-get update && apt-get install -y golang-go &&
+    cd /work/ffi-go-poc &&
+    CGO_LDFLAGS='-L/work/target/release' GOSUMDB=off CGO_ENABLED=1 \
+      GOOS=linux GOARCH=arm64 go build -o ffi-go-poc-linux ."
+```
+
+(Match the container's Go version to your host's if it matters to you; the
+`rust:1.88-bookworm` image ships whatever Debian's `apt` has, which may lag
+behind. Building both `bifrost-ffi-export` and `datafusion-go`'s native
+library for Linux should happen inside the same container, for the same
+reason.)
+
+**Also watch for glibc vs. musl**: the official `grafana/grafana` Docker
+image is Alpine-based (musl libc) and cannot load a glibc-linked
+`libbifrost_ffi_export.so`/`libdatafusion_go.so` built by a standard
+Rust/Go Linux toolchain — loading it fails at the dynamic linker level with
+errors like `Error loading shared library libgcc_s.so.1: No such file or
+directory`. If you're running this inside `grafana/grafana` specifically,
+use the `-ubuntu` tag variant (e.g. `grafana/grafana:11.3.0-ubuntu`), which
+is glibc-based, or cross-compile for `musl` yourself.

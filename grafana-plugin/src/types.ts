@@ -18,6 +18,21 @@ export const DEFAULT_QUERY: Partial<BifrostQuery> = {
     'ORDER BY time',
 };
 
+export type QueryMode = 'http' | 'ffi';
+
 export interface BifrostDataSourceOptions extends DataSourceJsonData {
+  // Used when queryMode is "http" (the default).
   bridgeUrl?: string;
+
+  // "http": query via bifrost-bridge over HTTP (default, supported).
+  // "ffi": query in-process via datafusion-ffi/datafusion-go, no bridge
+  // process. Experimental -- see grafana-plugin/README.md.
+  queryMode?: QueryMode;
+
+  // Used when queryMode is "ffi", to build the in-process LokiTableProvider
+  // directly (there's no bridge process to carry this configuration for
+  // that mode).
+  ffiLokiUrl?: string;
+  ffiStreamSelector?: string;
+  ffiLabelsCsv?: string;
 }

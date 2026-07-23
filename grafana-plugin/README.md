@@ -1,9 +1,77 @@
 # bifrost-datafusion-datasource (Grafana plugin)
 
-A Grafana backend datasource plugin that lets panels query Loki with SQL. It does not talk
-to Loki directly — every query is forwarded as plain SQL to the `bifrost-bridge` HTTP
-service (see `../bridge/`), which executes it through Apache DataFusion against
-`datafusion-loki`.
+A Grafana backend datasource plugin that lets panels query Loki with SQL. It never talks to
+Loki directly — every query goes through Apache DataFusion via one of two interchangeable
+**query engines**, selected per-datasource in the config UI:
+
+| Query mode | How it works | Status |
+|---|---|---|
+| **HTTP bridge** (default) | SQL is forwarded to `bifrost-bridge` (`../bridge/`), a separate Rust process embedding `datafusion-loki`, over HTTP | Supported |
+| **In-process (FFI)** | `LokiTableProvider` is loaded directly into this plugin's own process via `datafusion-ffi`/`datafusion-go` — no bridge process at all | Experimental |
+
+Both modes share identical time-macro handling and frame-building logic (`pkg/plugin/datasource.go`,
+`pkg/plugin/frames.go`) — see `queryEngine` in `pkg/plugin/engine.go` for the seam between
+them. Switching modes on an existing datasource is just flipping the "Query mode" radio
+button in its config page; no rebuild required, since both engines are compiled into the
+same plugin binary.
+
+## Query mode: In-process (FFI)
+
+Loads `LokiTableProvider` (the Rust `TableProvider` in the repo root) directly into this
+Go process's memory via [`datafusion-ffi`](https://crates.io/crates/datafusion-ffi) and
+[`datafusion-go`](https://github.com/datafusion-contrib/datafusion-go)'s cgo bindings — see
+`pkg/lokiffi/`. Verified working end-to-end on both `darwin/arm64` (native) and
+`linux/arm64` (inside the actual `grafana/grafana:11.3.0-ubuntu` Docker image), including
+confirming via Loki's own query logs that predicate/time-range pushdown still reaches Loki
+correctly through the FFI boundary.
+
+**Marked experimental because**: the specific `datafusion-go` feature this depends on
+(`RegisterFFITableProvider`) is not in any tagged `datafusion-go` release — only on an
+unreleased commit (`41c5568d891f`, pinned exactly in `go.mod`). Using this mode means:
+
+- The plugin binary must be built with `CGO_ENABLED=1` and linked against
+  `libbifrost_ffi_export.{dylib,so}` (built from `../ffi-export/`).
+- `datafusion-go`'s own native library must be built from source (its `make bundle`,
+  requiring a Rust toolchain) rather than downloaded as a prebuilt release asset.
+- **The Docker image matters**: the default `grafana/grafana` image is Alpine/musl-based
+  and cannot load glibc-linked shared libraries built by a standard Rust/Go toolchain —
+  use the `-ubuntu` tag variant (e.g. `grafana/grafana:11.3.0-ubuntu`), or cross-compile
+  for musl yourself. This is *not* required for HTTP-bridge mode, which has no native
+  library dependency at all.
+
+If you don't need this mode, leave the datasource on "HTTP bridge" (the default) and none
+of the above applies to you.
+
+### Building and running the FFI mode locally
+
+```sh
+# 1. Build the Rust FFI export library (from the repo root)
+cargo build --release -p bifrost-ffi-export
+
+# 2. Build datafusion-go's own native library from source, pinned to the same commit
+#    as this plugin's go.mod
+git clone https://github.com/datafusion-contrib/datafusion-go.git /tmp/dfgo
+cd /tmp/dfgo && git checkout 41c5568d891f8c97928649292d5a06ed817d5d2d && make bundle
+
+# 3. Build the plugin itself with cgo enabled, linked against the FFI export library
+#    (adjust the -L path if your checkout has no spaces in it -- see ffi-export/README.md
+#    for why a space-free path matters)
+cp ../target/release/libbifrost_ffi_export.dylib /tmp/bifrost-ffi-lib/   # macOS
+CGO_LDFLAGS="-L/tmp/bifrost-ffi-lib" GOSUMDB=off CGO_ENABLED=1 \
+  go build -o dist/gpx_bifrost_darwin_arm64 ./pkg
+
+# 4. Restart Grafana with the native libraries on its library search path
+docker run -d --name grafana-demo -p 3000:3000 \
+  -e LD_LIBRARY_PATH=/native-libs \
+  -e DATAFUSION_GO_LIBRARY=/native-libs/libdatafusion_go.so \
+  -v "$(pwd)/dist:/var/lib/grafana/plugins/bifrost-datafusion-datasource" \
+  -v /path/to/native-libs:/native-libs \
+  grafana/grafana:11.3.0-ubuntu   # note: -ubuntu tag, not the default Alpine image
+```
+
+Then in the datasource config page, switch "Query mode" to "In-process (FFI)" and fill in
+Loki URL / stream selector / labels (there's no bridge process to carry that config in this
+mode, so it lives directly on the datasource).
 
 ## Important: the dashboard time picker does nothing by default
 
@@ -54,11 +122,28 @@ down into Loki's `start`/`end` query params — it isn't just a client-side post
 
 ## Rebuilding after a change
 
+The Go module now always depends on `datafusion-go` (for the FFI query mode), which
+requires cgo. If you only care about HTTP-bridge mode and don't want to deal with the FFI
+build prerequisites from the section above, plain `go build` still works fine — cgo will
+link against the `datafusion-go` native library lazily at runtime only if the FFI engine is
+actually constructed (i.e. only if a datasource is configured with Query mode = "In-process
+(FFI)"). You still need `CGO_ENABLED=1` at build time either way, since the import graph
+includes cgo code regardless of which mode a given datasource ends up using at runtime.
+
 ```sh
-npm run build                                        # frontend: dist/module.js
-GOOS=linux  GOARCH=arm64 go build -o dist/gpx_bifrost_linux_arm64  ./pkg   # for Grafana-in-Docker
-GOOS=darwin GOARCH=arm64 go build -o dist/gpx_bifrost_darwin_arm64 ./pkg  # for running Grafana natively
+npm run build   # frontend: dist/module.js
+
+# HTTP-bridge-only usage doesn't need the FFI library on the linker path, but the
+# build itself still requires cgo since pkg/lokiffi is always compiled in.
+GOSUMDB=off CGO_ENABLED=1 GOOS=linux  GOARCH=arm64 go build -o dist/gpx_bifrost_linux_arm64  ./pkg
+GOSUMDB=off CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o dist/gpx_bifrost_darwin_arm64 ./pkg
 ```
+
+Cross-compiling the Linux binary from macOS requires a Linux cross-compiler cgo can invoke,
+which this repo doesn't assume you have. If you hit `cc: error: ...undeclared function...`
+trying to `GOOS=linux` from macOS, build inside a Linux container instead — see
+`ffi-go-poc/README.md`'s note on this, or the `docker run ... rust:1.88-bookworm` pattern
+used to build this plugin's own `linux/arm64` binary during development.
 
 Grafana does not hot-reload a backend plugin process on file change — restart the Grafana
 container (or process) after rebuilding for changes to take effect:
