@@ -9,9 +9,8 @@ use datafusion::error::{DataFusionError, Result as DfResult};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
-use datafusion::physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, PlanProperties,
-};
+use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::stream::{self, Stream, StreamExt};
 
 use crate::client::{LogEntry, LokiClient, QueryRangeParams};
@@ -30,7 +29,7 @@ pub struct LokiExec {
     schema: SchemaRef,
     label_schema: LabelSchema,
     limit: Option<usize>,
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
 }
 
 impl LokiExec {
@@ -42,11 +41,12 @@ impl LokiExec {
         label_schema: LabelSchema,
         limit: Option<usize>,
     ) -> Self {
-        let properties = PlanProperties::new(
+        let properties = Arc::new(PlanProperties::new(
             EquivalenceProperties::new(schema.clone()),
             Partitioning::UnknownPartitioning(1),
-            ExecutionMode::Bounded,
-        );
+            EmissionType::Final,
+            Boundedness::Bounded,
+        ));
         Self {
             logql,
             config,
@@ -78,7 +78,7 @@ impl ExecutionPlan for LokiExec {
         self
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 

@@ -277,9 +277,9 @@ fn push_like(
 
 fn literal_str(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Literal(ScalarValue::Utf8(Some(s))) => Some(s.clone()),
-        Expr::Literal(ScalarValue::LargeUtf8(Some(s))) => Some(s.clone()),
-        Expr::Literal(ScalarValue::Utf8View(Some(s))) => Some(s.clone()),
+        Expr::Literal(ScalarValue::Utf8(Some(s)), _) => Some(s.clone()),
+        Expr::Literal(ScalarValue::LargeUtf8(Some(s)), _) => Some(s.clone()),
+        Expr::Literal(ScalarValue::Utf8View(Some(s)), _) => Some(s.clone()),
         _ => None,
     }
 }

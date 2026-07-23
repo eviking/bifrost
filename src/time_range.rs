@@ -90,20 +90,20 @@ fn flip(op: Operator) -> Operator {
 
 fn literal_timestamp(expr: &Expr) -> Option<DateTime<Utc>> {
     match expr {
-        Expr::Literal(ScalarValue::TimestampNanosecond(Some(ns), _)) => {
+        Expr::Literal(ScalarValue::TimestampNanosecond(Some(ns), _), _) => {
             DateTime::<Utc>::from_timestamp(
                 ns.div_euclid(1_000_000_000),
                 (ns.rem_euclid(1_000_000_000)) as u32,
             )
         }
-        Expr::Literal(ScalarValue::TimestampMicrosecond(Some(us), _)) => {
+        Expr::Literal(ScalarValue::TimestampMicrosecond(Some(us), _), _) => {
             DateTime::<Utc>::from_timestamp_micros(*us)
         }
-        Expr::Literal(ScalarValue::TimestampMillisecond(Some(ms), _)) => {
+        Expr::Literal(ScalarValue::TimestampMillisecond(Some(ms), _), _) => {
             DateTime::<Utc>::from_timestamp_millis(*ms)
         }
-        Expr::Literal(ScalarValue::TimestampSecond(Some(s), _)) => DateTime::<Utc>::from_timestamp(*s, 0),
-        Expr::Literal(ScalarValue::Utf8(Some(s))) => DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Utc)),
+        Expr::Literal(ScalarValue::TimestampSecond(Some(s), _), _) => DateTime::<Utc>::from_timestamp(*s, 0),
+        Expr::Literal(ScalarValue::Utf8(Some(s)), _) => DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Utc)),
         _ => None,
     }
 }
@@ -133,10 +133,10 @@ mod tests {
 
     fn ts_lit(rfc3339: &str) -> Expr {
         let dt = DateTime::parse_from_rfc3339(rfc3339).unwrap().with_timezone(&Utc);
-        Expr::Literal(ScalarValue::TimestampNanosecond(
-            Some(dt.timestamp_nanos_opt().unwrap()),
+        Expr::Literal(
+            ScalarValue::TimestampNanosecond(Some(dt.timestamp_nanos_opt().unwrap()), None),
             None,
-        ))
+        )
     }
 
     #[test]
