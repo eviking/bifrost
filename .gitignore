@@ -4,6 +4,7 @@
 
 # Go
 grafana-plugin/dist/
+ffi-go-poc/ffi-go-poc
 *.exe
 *.test
 

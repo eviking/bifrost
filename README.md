@@ -151,6 +151,18 @@ Grafana panels query Loki with SQL through `bridge/`, the Rust HTTP service that
 and why (this mirrors how Grafana's official Postgres/MySQL/ClickHouse datasources work:
 the picker never silently rewrites your SQL for you).
 
+### In-process FFI prototype (no HTTP bridge)
+
+`ffi-export/` + `ffi-go-poc/` together prove an alternate path: a Go process querying
+Loki through DataFusion **in-process**, via [`datafusion-ffi`](https://crates.io/crates/datafusion-ffi)
+and the community [`datafusion-go`](https://github.com/datafusion-contrib/datafusion-go)
+binding, with zero HTTP hops to a separate bridge process. Verified working end-to-end,
+including confirming pushdown still reaches Loki correctly — but it depends on an
+unreleased `datafusion-go` commit (the Go-side FFI registration feature isn't in a tagged
+release yet), so it isn't what `grafana-plugin/` actually uses. See `ffi-export/README.md`
+and `ffi-go-poc/README.md` for the full status and setup. `bridge/` remains the supported,
+production path.
+
 ## Two schema modes
 
 **Flattened (recommended when labels are known ahead of time)**

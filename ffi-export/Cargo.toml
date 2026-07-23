@@ -1,0 +1,18 @@
+[package]
+name = "bifrost-ffi-export"
+version = "0.1.0"
+edition = "2021"
+description = "Exposes LokiTableProvider as an FFI_TableProvider for consumption by datafusion-go, as a prototype for a native Go connector that removes the HTTP bridge process"
+
+[lib]
+name = "bifrost_ffi_export"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+datafusion-loki = { path = ".." }
+# Pinned to exactly =53.1.0 to match datafusion-go's own hard-pinned
+# DataFusion version, and datafusion-loki's own pin (see root Cargo.toml).
+datafusion = { version = "=53.1.0", default-features = false, features = ["nested_expressions", "sql"] }
+datafusion-ffi = "=53.1.0"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+once_cell = "1"

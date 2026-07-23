@@ -1,5 +1,5 @@
 [workspace]
-members = ["bridge"]
+members = ["bridge", "ffi-export"]
 resolver = "2"
 
 [package]
