@@ -27,6 +27,7 @@ use crate::time_range::{extract_time_range, is_timestamp_bound};
 /// becomes Loki's `start`/`end` range params; `LIMIT n` is pushed down as a
 /// row cap across paginated `query_range` calls. Everything else is left for
 /// DataFusion to evaluate on the returned batches.
+#[derive(Debug)]
 pub struct LokiTableProvider {
     config: LokiConfig,
     schema: SchemaRef,

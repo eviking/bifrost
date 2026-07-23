@@ -18,11 +18,19 @@ path = "src/lib.rs"
 
 [dependencies]
 # --- DataFusion / Arrow ---
-datafusion = { version = "42", default-features = false, features = ["nested_expressions"] }
-datafusion-expr = "42"
-datafusion-physical-expr = "42"
-arrow = { version = "53", features = ["prettyprint"] }
-arrow-schema = "53"
+# Pinned to =53.1.0 (not just "53") because datafusion-ffi's FFI ABI check
+# (used by the datafusion-go Go binding prototype) requires an EXACT version
+# match between producer and consumer crates.
+# =53.1.0 is the exact DataFusion release datafusion-go's Go binding hard-pins
+# to for its FFI ABI check. arrow/arrow-schema are pinned to exactly what this
+# DataFusion release itself resolves internally (=58.4.0), since our code
+# passes arrow types (RecordBatch, Schema) directly across the DataFusion API
+# boundary and a version mismatch there fails to compile, not just to link.
+datafusion = { version = "=53.1.0", default-features = false, features = ["nested_expressions", "sql"] }
+datafusion-expr = "=53.1.0"
+datafusion-physical-expr = "=53.1.0"
+arrow = { version = "=58.4.0", features = ["prettyprint"] }
+arrow-schema = "=58.4.0"
 
 # --- async runtime ---
 async-trait = "0.1"
@@ -46,7 +54,7 @@ log = "0.4"
 tokio = { version = "1", features = ["full"] }
 env_logger = "0.11"
 wiremock = "0.6"
-datafusion = { version = "42", default-features = false, features = ["nested_expressions"] }
+datafusion = { version = "=53.1.0", default-features = false, features = ["nested_expressions", "sql"] }
 
 [[example]]
 name = "query_loki"
